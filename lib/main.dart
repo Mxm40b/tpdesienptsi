@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:freedesktop_desktop_entry/freedesktop_desktop_entry.dart';
+import 'package:win32audio/win32audio.dart';
 
 import 'dart:io';
+import 'dart:typed_data';
 
 void main() {
+  // TODO: dé-commenter les lignes dessous pour blocker l'accès en dehors des heures de TP
   // final now = DateTime.now();
   // if (now.weekday != 2 || now.hour > 19 || now.hour < 13) {
   //   runApp(const BlockedApp());
@@ -56,6 +59,13 @@ class MainApp extends StatelessWidget {
                     padding: EdgeInsetsGeometry.all(10),
                     onPressed: () {
                       Process.start('sioyek', ['/home/mxmfrpr/lesTP.pdf']);
+                      // TODO: sous windows, dé-commenter ceci:
+                      // Process.start('cmd.exe', [
+                      //   '/c',
+                      //   'start',
+                      //   '',
+                      //   pdfPath,
+                      // ], runInShell: false);
                     },
                     child: Text(
                       "Le PDF des TP",
@@ -108,7 +118,15 @@ class ProgramButtonLayout extends StatelessWidget {
       children: [
         RawMaterialButton(
           onPressed: () {
-            Process.start('sh', ['-c', '${program.path}${program.name}']);
+            if (Platform.isLinux) {
+              Process.start('sh', ['-c', '${program.path}${program.name}']);
+            } else if (Platform.isWindows) {
+              Process.start(
+                '${program.path}${program.name}',
+                [],
+                runInShell: false,
+              );
+            }
           },
           child: Padding(
             padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 1.0),
@@ -129,43 +147,79 @@ Widget iconWidget(File file) {
   return Image.file(file, width: 64, height: 64);
 }
 
-Widget programButton(Program program) {
+Widget? programButton(Program program) {
   final themes = FreedesktopIconThemes();
-  return FutureBuilder<File?>(
-    future: themes.findIcon(
-      IconQuery(
-        name: (program.icon == null) ? program.name.trim() : program.icon!,
-        size: 64,
-        scale: 1,
-        extensions: ['png', 'svg'],
+  if (Platform.isLinux) {
+    return FutureBuilder<File?>(
+      future: themes.findIcon(
+        IconQuery(
+          name: (program.icon == null) ? program.name.trim() : program.icon!,
+          size: 64,
+          scale: 1,
+          extensions: ['png', 'svg'],
+        ),
       ),
-    ),
-    builder: (context, snapshot) {
-      if (snapshot.connectionState == ConnectionState.waiting) {
-        // return const SizedBox(
-        //   width: 50,
-        //   height: 50,
-        //   child: CircularProgressIndicator(),
-        // );
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          // return const SizedBox(
+          //   width: 50,
+          //   height: 50,
+          //   child: CircularProgressIndicator(),
+          // );
+          return ProgramButtonLayout(
+            image: SizedBox.square(
+              dimension: 64,
+              child: CircularProgressIndicator(),
+            ),
+            program: program,
+          );
+        }
+
+        final file = snapshot.data;
+
         return ProgramButtonLayout(
-          image: SizedBox.square(
-            dimension: 64,
-            child: CircularProgressIndicator(),
-          ),
+          image: file != null
+              ? iconWidget(file)
+              : const Icon(Icons.apps, size: 64, color: Colors.deepPurple),
           program: program,
         );
-      }
+      },
+    );
+  } else if (Platform.isWindows) {
+    return FutureBuilder<Uint8List?>(
+      future: getExeIcon('${program.path}${program.name}'),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          // return const SizedBox(
+          //   width: 50,
+          //   height: 50,
+          //   child: CircularProgressIndicator(),
+          // );
+          return ProgramButtonLayout(
+            image: SizedBox.square(
+              dimension: 64,
+              child: CircularProgressIndicator(),
+            ),
+            program: program,
+          );
+        }
 
-      final file = snapshot.data;
+        final iconBytes = snapshot.data;
 
-      return ProgramButtonLayout(
-        image: file != null
-            ? iconWidget(file)
-            : const Icon(Icons.apps, size: 64, color: Colors.deepPurple),
-        program: program,
-      );
-    },
-  );
+        return ProgramButtonLayout(
+          image: iconBytes != null
+              ? Image.memory(iconBytes, width: 64, height: 64)
+              : const Icon(Icons.apps, size: 64, color: Colors.deepPurple),
+          program: program,
+        );
+      },
+    );
+  }
+  return null;
+}
+
+Future<Uint8List?> getExeIcon(String exePath) async {
+  return WinIcons().extractFileIcon(exePath);
 }
 
 class Program {
@@ -175,6 +229,8 @@ class Program {
   Program(this.path, this.name, {this.icon});
 }
 
+// TODO: sous Windows, rajouter les paths, eg "C:\Path\To\Win executables\" puis "app\ name.exe"
+// et retirer ceux-ci
 List<Program> programs =
     groupPrograms("/usr/bin/env ", ["zen", " firefox"]) +
     groupPrograms("/usr/bin/env ", ["zen", " firefox"]) +
